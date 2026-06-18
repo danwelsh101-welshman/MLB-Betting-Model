@@ -72,3 +72,4 @@ See [docs/PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md) for a full tour of ev
 
 ## Tech
 Python 3.14 · pandas · scikit-learn · Streamlit · SQLite (upgradeable to PostgreSQL)
+

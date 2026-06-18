@@ -33,7 +33,7 @@ try:
 except Exception:
     pass
 
-from config.settings import ODDS_WIDGET_URL
+from config.settings import ODDS_WIDGET_URL, PREFERRED_SPORTSBOOK
 from backend.database import (
     init_db, get_connection, get_games_for_date,
     delete_picks_for_date, insert_row, upsert_row,
@@ -41,9 +41,13 @@ from backend.database import (
 from backend.mlb_api import fetch_schedule
 from backend.teams import abbr, logo_url
 from backend.stats import get_pitcher_hand
-from backend.odds import set_preferred_book, BOOKMAKER_KEYS
+from backend.weather import get_game_weather
+from backend.odds import set_preferred_book
 from models.picks_engine import build_all_picks
 from models.strikeout_model import project_strikeouts
+
+# Price against the owner-configured sportsbook (users can't change this).
+set_preferred_book(PREFERRED_SPORTSBOOK)
 
 # Clean, non-redundant labels.
 MARKET_LABEL = {
@@ -158,6 +162,17 @@ def pitchers_html(g) -> str:
             f'<span class="at">@</span>{abbr(g["home_team"])}: {hp}{h_tag}</div>')
 
 
+def weather_html(g) -> str:
+    if not g:
+        return ""
+    w = get_game_weather(g)
+    if w.is_dome:
+        return '<div class="wx">🏟️ Roof closed — neutral conditions</div>'
+    if w.ok:
+        return f'<div class="wx">🌤️ {w.summary}</div>'
+    return ""
+
+
 def logo_data_uri() -> str:
     svg = (PROJECT_ROOT / "app" / "assets" / "logo.svg").read_bytes()
     return "data:image/svg+xml;base64," + base64.b64encode(svg).decode()
@@ -202,6 +217,7 @@ def pick_card_html(p, games_map, hero=False) -> str:
         f'<div class="headline">{p["recommended_pick"]}'
         f'<span class="odds">{odds}</span></div>'
         f'{pitchers_html(games_map.get(p["game_id"]))}'
+        f'{weather_html(games_map.get(p["game_id"]))}'
         f'<div class="metrics">'
         f'<div class="metric"><div class="m-label">Confidence</div>'
         f'<div class="m-value" style="color:{col}">{c:.0f}</div>'
@@ -274,8 +290,9 @@ st.markdown(f"""
               display:flex; align-items:baseline; gap:10px; }}
   .hero .headline {{ font-size:2rem; }}
   .odds {{ color:{MUTED}; font-size:1rem; font-weight:600; }}
-  .pitchers {{ color:{MUTED}; font-size:0.8rem; margin-bottom:14px; }}
+  .pitchers {{ color:{MUTED}; font-size:0.8rem; margin-bottom:6px; }}
   .pitchers .at {{ margin:0 4px; }}
+  .wx {{ color:{MUTED}; font-size:0.76rem; margin-bottom:14px; opacity:0.9; }}
   .slot-title {{ font-size:0.92rem; font-weight:700; color:{BLUE};
                 letter-spacing:0.04em; margin:22px 0 10px;
                 border-left:3px solid {BLUE}; padding-left:10px; }}
@@ -333,12 +350,6 @@ with st.sidebar:
     selected_date = st.date_input("Date", value=date.today())
     iso_date = selected_date.isoformat()
 
-    book = st.selectbox("Sportsbook", list(BOOKMAKER_KEYS.keys()), index=0)
-    set_preferred_book(book)
-
-    min_edge = st.slider("Minimum edge %", 0.0, 20.0, 0.0, 0.5,
-                         help="Hide picks with an edge below this value.")
-
     if st.button("🔄 Refresh data & picks", use_container_width=True):
         with st.spinner("Pulling live data and rebuilding picks..."):
             n = refresh_data(selected_date)
@@ -346,15 +357,9 @@ with st.sidebar:
         st.success(f"{n} picks generated.")
 
     st.divider()
+    st.caption(f"Odds priced at {PREFERRED_SPORTSBOOK}.")
     st.caption("edgr is an analytics tool, not betting advice. Confidence reflects "
                "model confidence, not certainty. Gamble responsibly — 1-800-GAMBLER.")
-
-# If the user switched sportsbook, rebuild picks from stored games (fast: live
-# odds + stats are cached). This makes the odds reflect their chosen book.
-if st.session_state.get("edgr_book") != book:
-    st.session_state["edgr_book"] = book
-    if get_games_for_date(iso_date):
-        rebuild_picks(selected_date)
 
 picks = load_picks(iso_date)
 games_map = load_games_map(iso_date)
@@ -385,10 +390,6 @@ elif choice == "All Picks":
     view = picks
 else:
     view = picks[picks["market"].isin(FILTER_CODES.get(choice, []))]
-
-# Apply the sidebar minimum-edge filter.
-if len(view):
-    view = view[view["edge_pct"] >= min_edge]
 
 # ---- Dashboard metrics (real data only) ----
 if len(view):

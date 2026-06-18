@@ -34,6 +34,10 @@ DATABASE_PATH = PROCESSED_DATA_DIR / "edgr.db"
 # ---------------------------------------------------------------------------
 ODDS_API_KEY = os.getenv("ODDS_API_KEY", "")
 
+# Which sportsbook edgr prices against. Set by the owner (not end users) so
+# odds reflect one consistent book. Change in .env if you bet elsewhere.
+PREFERRED_SPORTSBOOK = os.getenv("ODDS_PREFERRED_BOOK", "FanDuel")
+
 # The Odds API *widget* URL (display-only embed). Optional. When set, the
 # dashboard shows a live sportsbook-odds panel. This is separate from the REST
 # API key above, which is what lets edgr READ odds to compute edges.

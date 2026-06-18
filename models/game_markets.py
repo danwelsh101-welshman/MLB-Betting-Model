@@ -24,6 +24,7 @@ from dataclasses import dataclass
 
 from scipy.stats import poisson, skellam
 
+from models.calibration import calibrate
 from config.settings import (
     LEAGUE_RUNS_PER_GAME,
     LEAGUE_AVG_ERA,
@@ -44,8 +45,13 @@ class GameProjection:
     data_quality: float
 
 
-def project_game(game: dict, season: int) -> GameProjection:
-    """Estimate expected runs for both teams (full game and first 5 innings)."""
+def project_game(game: dict, season: int, weather_factor: float = 1.0) -> GameProjection:
+    """Estimate expected runs for both teams (full game and first 5 innings).
+
+    `weather_factor` (~0.88 - 1.14) scales the run environment up in hitter-
+    friendly conditions (heat, wind blowing out) and down in pitcher-friendly
+    ones. It applies equally to both teams. 1.0 means neutral / no data.
+    """
     league_rate = LEAGUE_RUNS_PER_GAME / 9.0
 
     # Offenses (runs per inning), falling back to league average if unknown.
@@ -77,7 +83,11 @@ def project_game(game: dict, season: int) -> GameProjection:
     offense_q = 1.0 if (home_off and away_off) else 0.6
     data_quality = round(offense_q * (home_q + away_q) / 2, 2)
 
-    return GameProjection(home_full, away_full, home_f5, away_f5, data_quality)
+    return GameProjection(
+        home_full * weather_factor, away_full * weather_factor,
+        home_f5 * weather_factor, away_f5 * weather_factor,
+        data_quality,
+    )
 
 
 def _expected_runs(offense_rate, pitch_rate, league_rate, innings) -> float:
@@ -111,15 +121,18 @@ def moneyline_prob(home_runs: float, away_runs: float, home_field: bool = True) 
     home_win = p_home_more + 0.5 * p_tie
     if home_field:
         home_win = min(0.97, home_win + HOME_FIELD_EDGE)
+    # Apply the calibration fit from the season backtest so the probability
+    # reflects real win rates (the raw model is overconfident).
+    home_win = calibrate(home_win)
     return home_win, 1 - home_win
 
 
 def run_line_prob(home_runs: float, away_runs: float) -> dict:
     """Return win probabilities for the four common -1.5 / +1.5 run-line sides."""
     # home -1.5 wins if home margin >= 2  ->  1 - P(margin <= 1)
-    home_minus = 1 - skellam.cdf(1, home_runs, away_runs)
+    home_minus = calibrate(1 - skellam.cdf(1, home_runs, away_runs), "runline_minus")
     # home +1.5 wins if home margin >= -1 ->  1 - P(margin <= -2)
-    home_plus = 1 - skellam.cdf(-2, home_runs, away_runs)
+    home_plus = calibrate(1 - skellam.cdf(-2, home_runs, away_runs), "runline_plus")
     return {
         "home_-1.5": home_minus,
         "home_+1.5": home_plus,
@@ -133,6 +146,5 @@ def total_prob(home_runs: float, away_runs: float, line: float) -> tuple[float, 
     lam = home_runs + away_runs
     # For a .5 line, "over" means total >= line rounded up.
     threshold = int(line)              # 8.5 -> 8; over means total >= 9
-    under = poisson.cdf(threshold, lam)
-    over = 1 - under
-    return over, under
+    over = calibrate(1 - poisson.cdf(threshold, lam), "total_over")
+    return over, 1 - over
