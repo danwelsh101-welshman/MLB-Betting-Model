@@ -12,8 +12,11 @@ linescore and are added later.
 """
 
 import re
+from datetime import date
 
 from backend.value import american_to_decimal
+from backend.database import get_connection, upsert_row, get_games_for_date
+from backend.mlb_api import fetch_schedule
 
 
 def grade_pick(pick: dict, home_team: str, away_team: str,
@@ -50,6 +53,52 @@ def grade_pick(pick: dict, home_team: str, away_team: str,
         return "win" if hit else "loss"
 
     return None   # markets we can't grade from the final score alone
+
+
+def grade_date(iso_date: str) -> list[dict]:
+    """Fetch final scores for a date and grade every stored pick for it.
+
+    Saves each pick's result back to the database (so the record persists), and
+    returns the graded pick dicts. Only games marked Final are graded; games
+    still in progress are left ungraded (result stays None).
+    """
+    for game in fetch_schedule(date.fromisoformat(iso_date)):
+        upsert_row("games", game)
+
+    games = {g["game_id"]: g for g in get_games_for_date(iso_date)}
+    conn = get_connection()
+    try:
+        picks = [dict(r) for r in conn.execute(
+            "SELECT * FROM picks WHERE date = ?", (iso_date,)).fetchall()]
+        for p in picks:
+            g = games.get(p["game_id"])
+            is_final = g and g.get("game_status") == "Final"
+            if not is_final or g.get("home_score") is None or g.get("away_score") is None:
+                p["result"] = None
+            else:
+                p["result"] = grade_pick(p, g["home_team"], g["away_team"],
+                                         g["home_score"], g["away_score"])
+            conn.execute("UPDATE picks SET result = ? WHERE id = ?",
+                         (p["result"], p["id"]))
+        conn.commit()
+        return picks
+    finally:
+        conn.close()
+
+
+def grade_all_pending(before_date: str) -> int:
+    """Grade every past date that still has ungraded picks. Returns # of dates."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT DISTINCT date FROM picks WHERE date < ? AND result IS NULL "
+            "ORDER BY date", (before_date,)).fetchall()
+    finally:
+        conn.close()
+    dates = [r["date"] for r in rows]
+    for d in dates:
+        grade_date(d)
+    return len(dates)
 
 
 def _number(text: str) -> float | None:

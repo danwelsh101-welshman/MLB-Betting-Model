@@ -43,6 +43,8 @@ from backend.teams import abbr, logo_url
 from backend.stats import get_pitcher_hand
 from backend.weather import get_game_weather
 from backend.odds import set_preferred_book
+from backend.grading import grade_all_pending
+from backend.performance import window_summary, by_market
 from models.picks_engine import build_all_picks
 from models.strikeout_model import project_strikeouts
 
@@ -236,9 +238,11 @@ def pick_card_html(p, games_map, hero=False) -> str:
     )
 
 
-def dash_card(label, value, sub="") -> str:
+def dash_card(label, value, sub="", color=None) -> str:
     sub_html = f'<div class="d-sub">{sub}</div>' if sub else ""
-    return f'<div class="dash-card"><div class="d-label">{label}</div><div class="d-value">{value}</div>{sub_html}</div>'
+    style = f' style="color:{color}"' if color else ""
+    return (f'<div class="dash-card"><div class="d-label">{label}</div>'
+            f'<div class="d-value"{style}>{value}</div>{sub_html}</div>')
 
 
 # ---------------------------------------------------------------------------
@@ -324,6 +328,13 @@ st.markdown(f"""
                    font-size:0.85rem; }}
   .perf-rows span {{ color:{MUTED}; }} .perf-rows b {{ color:#6B7889; }}
 
+  .perf-table {{ width:100%; border-collapse:collapse; margin-top:12px;
+                font-size:0.9rem; }}
+  .perf-table th {{ text-align:left; color:{MUTED}; font-weight:600;
+                   font-size:0.74rem; text-transform:uppercase; padding:6px 10px;
+                   border-bottom:1px solid #1C2533; }}
+  .perf-table td {{ padding:8px 10px; border-bottom:1px solid #131A26;
+                   color:#D6DEE8; }}
   .section-title {{ font-size:1.15rem; font-weight:800; color:#E6EDF3;
                    margin:26px 0 12px; }}
   .empty {{ background:#0E1420; border:1px dashed #2A3548; border-radius:14px;
@@ -436,11 +447,50 @@ else:
         cards = "".join(pick_card_html(r, games_map) for r in slots[(key, label)])
         st.markdown(f'<div class="pick-grid">{cards}</div>', unsafe_allow_html=True)
 
-# ---- Performance tracking (honest empty state until results are graded) ----
+# ---- Performance tracker (real graded results, persists over time) ----
+# Grade any past dates that still have ungraded picks (once per session).
+if "graded_session" not in st.session_state:
+    st.session_state["graded_session"] = True
+    try:
+        grade_all_pending(date.today().isoformat())
+    except Exception:
+        pass
+
 st.markdown('<div class="section-title">Model Performance</div>', unsafe_allow_html=True)
-st.markdown(
-    '<div class="empty">No performance data available yet — win rate and ROI unlock '
-    'once game results are graded.</div>', unsafe_allow_html=True)
+perf = window_summary()
+if perf["total"] == 0:
+    st.markdown('<div class="empty">No graded results yet — the tracker fills in '
+                'automatically once games go final.</div>', unsafe_allow_html=True)
+else:
+    wr = perf["win_pct"]
+    units = perf["units_won"]
+    roi = perf["roi"]
+    wr_color = GREEN if wr >= 52.4 else RED
+    u_color = GREEN if units >= 0 else RED
+    cards = "".join([
+        dash_card("Win Rate", f"{wr:.0f}%", f"{perf['wins']+perf['losses']} picks", wr_color),
+        dash_card("Record", f"{perf['wins']}-{perf['losses']}"
+                  + (f"-{perf['pushes']}" if perf["pushes"] else "")),
+        dash_card("Units", f"{units:+.1f}u", "1 unit / pick", u_color),
+        dash_card("ROI", f"{roi:+.1f}%", color=u_color),
+    ])
+    st.markdown(f'<div class="dash-grid">{cards}</div>', unsafe_allow_html=True)
+
+    # By-market breakdown.
+    mrows = by_market()
+    if mrows:
+        body = "".join(
+            f'<tr><td>{MARKET_LABEL.get(m["market"], m["market"])}</td>'
+            f'<td>{m["wins"]}-{m["losses"]}</td><td>{m["win_pct"]:.0f}%</td>'
+            f'<td style="color:{GREEN if m["roi"] >= 0 else RED}">{m["roi"]:+.0f}%</td></tr>'
+            for m in mrows)
+        st.markdown(
+            '<table class="perf-table"><tr><th>Market</th><th>Record</th>'
+            f'<th>Win%</th><th>ROI</th></tr>{body}</table>', unsafe_allow_html=True)
+
+    st.caption("⚠️ Small sample — not yet statistically meaningful. Results before "
+               "Jun 18, 2026 reflect an earlier, un-calibrated model; the calibrated "
+               "track record is just beginning. One unit per pick; ROI vs the line bet.")
 
 # ---- Live odds + projections (collapsible, real data) ----
 if ODDS_WIDGET_URL:
