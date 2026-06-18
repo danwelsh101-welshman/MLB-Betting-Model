@@ -1,0 +1,25 @@
+# edgr — Python package list
+# Install with:  pip install -r requirements.txt
+#
+# Each line is one package. The "==" pins a version so the project
+# behaves the same on every machine. Comments (lines starting with #)
+# are ignored by pip.
+
+# --- Core data tools ---
+pandas            # tables of data (like a spreadsheet in Python)
+numpy             # fast math on numbers
+python-dotenv     # loads your secret keys from the .env file
+
+# --- Getting data from the internet ---
+requests          # makes web requests to APIs (MLB, odds, weather)
+pybaseball        # historical MLB stats + Statcast data
+
+# --- Machine learning (the "brains") ---
+scikit-learn      # logistic regression, random forests, calibration, etc.
+
+# --- The dashboard ---
+streamlit         # turns Python into a clean web app
+plotly            # interactive ROI / win-rate charts
+
+# --- Testing ---
+pytest            # runs the automated checks in the tests/ folder

@@ -1,0 +1,28 @@
+# --- Secrets (never commit these) ---
+.env
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# --- Data + models (often large; regenerated locally) ---
+data/raw/*
+data/processed/*
+models/*.pkl
+models/*.joblib
+# ...but keep the empty folders themselves:
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!models/.gitkeep
+
+# --- OS / editor noise ---
+.DS_Store
+.idea/
+.vscode/
+
+# --- Streamlit ---
+.streamlit/secrets.toml
+# (keep .streamlit/config.toml and secrets.toml.example tracked)

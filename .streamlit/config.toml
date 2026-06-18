@@ -1,0 +1,12 @@
+# edgr — premium dark theme (fintech / analytics terminal feel).
+
+[theme]
+base = "dark"
+primaryColor = "#3B82F6"             # blue accent (buttons, active filters)
+backgroundColor = "#0B0F14"          # app background
+secondaryBackgroundColor = "#111827"  # cards / sidebar
+textColor = "#E6EDF3"
+font = "sans serif"
+
+[server]
+headless = true
